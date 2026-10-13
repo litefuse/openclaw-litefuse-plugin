@@ -103,7 +103,7 @@ OpenClaw 2026.10.2 requires explicit conversation access for external plugins th
 }
 ```
 
-Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether these hooks are registered. This permission lets the plugin read conversation content for tracing.
+Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether OpenClaw registered these hooks. This permission lets the plugin read conversation content for tracing.
 
 OpenClaw 2026.10.2 ignores the plugin's existing `before_agent_start` hook. Agent span creation on that version needs a separate compatibility fix.
 
@@ -167,16 +167,17 @@ openclaw gateway restart
 
 ### From npm
 
-This command updates an installation tracked by OpenClaw. Stop the Gateway before replacing a plugin package.
+For an OpenClaw-managed npm installation, preview the update and then install the latest version:
 
 ```bash
-openclaw plugins update openclaw-litefuse-plugin --dry-run
+openclaw plugins update openclaw-litefuse-plugin@latest --dry-run
 openclaw gateway stop
-openclaw plugins update openclaw-litefuse-plugin
+openclaw plugins update openclaw-litefuse-plugin@latest
 openclaw gateway start
+openclaw plugins inspect openclaw-litefuse-plugin --runtime
 ```
 
-`openclaw update` updates OpenClaw and maintains tracked plugin installations. Neither `openclaw update` nor `openclaw plugins update` pulls changes into an untracked, manually cloned Git directory. Running `npm update` inside that directory updates dependencies, not the plugin's Git source.
+If the preview shows no update, keep the Gateway running. For a manual Git installation, use the Git commands above; `npm update` inside that directory updates dependencies, not the plugin source.
 
 ## Uninstall
 
