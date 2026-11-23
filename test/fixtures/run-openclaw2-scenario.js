@@ -278,6 +278,27 @@ if (scenario === 'control-ui-full') {
   );
   await handlers.get('agent_end')({ success: true, durationMs: 40, messages: [] }, cronCtx);
   await wait(1000);
+} else if (scenario === 'lifecycle-event-attributes') {
+  await handlers.get('gateway_start')({ port: 18789 });
+
+  const mainCtx = { agentId: 'main', sessionKey: 'agent:main:main', sessionId: 'sess-life-1' };
+  await handlers.get('session_start')({ sessionId: 'sess-life-1' }, mainCtx);
+
+  // A session_start that fires while a turn is open is nested under its agent span.
+  const turnCtx = { agentId: 'main', sessionKey: 'agent:main:other', sessionId: 'sess-life-2', runId: 'run-life-2' };
+  await handlers.get('before_prompt_build')({ prompt: 'Hello' }, turnCtx);
+  await handlers.get('session_start')(
+    { sessionId: 'sess-life-2', resumedFrom: 'sess-life-0' },
+    { agentId: 'main', sessionKey: 'agent:main:other', sessionId: 'sess-life-2' },
+  );
+  await handlers.get('agent_end')({ success: true, durationMs: 5, messages: [] }, turnCtx);
+  await wait(1000);
+
+  await handlers.get('session_end')(
+    { sessionId: 'sess-life-1', reason: 'reset', messageCount: 2, durationMs: 100 },
+    mainCtx,
+  );
+  await wait(1000);
 } else {
   throw new Error(`Unknown scenario: ${scenario}`);
 }

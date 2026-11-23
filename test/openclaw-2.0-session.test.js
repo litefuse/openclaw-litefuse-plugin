@@ -183,6 +183,41 @@ test('A concurrent run in another session does not overwrite the last user turn 
   }
 });
 
+test('Lifecycle events keep the attributes set on them', async () => {
+  const spans = await runScenario('lifecycle-event-attributes');
+
+  const gateway = spans.find((s) => s.name === 'gateway_start');
+  assert.ok(gateway, 'Expected gateway_start event');
+  assert.equal(gateway.attrs['langfuse.observation.type'], 'event');
+  assert.equal(gateway.attrs['langfuse.internal.as_root'], true);
+  assert.match(gateway.attrs['langfuse.trace.name'] || '', /^gateway-[0-9a-f]{8}$/);
+  assert.deepEqual(gateway.attrs['langfuse.trace.tags'], ['openclaw']);
+  assert.equal(gateway.attrs['openclaw.version'], '2026.10.2');
+
+  const starts = spans.filter((s) => s.name === 'session_start');
+  const standaloneStart = starts.find((s) => s.attrs['openclaw.session.id'] === 'sess-life-1');
+  const nestedStart = starts.find((s) => s.attrs['openclaw.session.id'] === 'sess-life-2');
+  assert.ok(standaloneStart && nestedStart, `Expected both session_start events, got ${JSON.stringify(starts.map((s) => s.attrs))}`);
+  assert.equal(standaloneStart.attrs['langfuse.observation.type'], 'event');
+  assert.equal(standaloneStart.attrs['openclaw.session.key'], 'agent:main:main');
+  assert.equal(standaloneStart.attrs['session.id'], undefined);
+  assert.equal(nestedStart.attrs['openclaw.session.key'], 'agent:main:other');
+  assert.equal(nestedStart.attrs['langfuse.observation.metadata.session.resumed_from'], 'sess-life-0');
+
+  const agent = spans.find((s) => s.name === 'invoke_agent main');
+  assert.ok(agent, 'Expected agent span for the open turn');
+  assert.equal(nestedStart.traceId, agent.traceId);
+  assert.equal(nestedStart.parentSpanId, agent.spanId);
+
+  const end = spans.find((s) => s.name === 'session_end');
+  assert.ok(end, 'Expected session_end event');
+  assert.equal(end.attrs['langfuse.observation.type'], 'event');
+  assert.equal(end.attrs['openclaw.session.id'], 'sess-life-1');
+  assert.equal(end.attrs['openclaw.session.key'], 'agent:main:main');
+  assert.equal(end.attrs['langfuse.observation.metadata.session.reason'], 'reset');
+  assert.equal(end.attrs['langfuse.observation.output'], JSON.stringify({ messageCount: 2, durationMs: 100, reason: 'reset' }));
+});
+
 test('Channel message_received links OpenClaw 2.0 sessionId and supports parallel tool calls', async () => {
   const spans = await runScenario('channel-message-and-parallel-tools');
 

@@ -1,6 +1,10 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { context, trace, type Attributes } from "@opentelemetry/api";
 import {
+  getLangfuseTracer,
+  LangfuseEvent,
   startObservation,
+  type LangfuseEventAttributes,
   type LangfuseSpan,
   type LangfuseAgent,
   type LangfuseGeneration,
@@ -139,6 +143,30 @@ function resolveExplicitSessionId(
 ): string | undefined {
   const raw = event?.sessionId ?? ctx?.sessionId;
   return typeof raw === "string" && raw.trim() ? raw.trim() : undefined;
+}
+
+// LangfuseEvent ends its OTel span in the constructor, so OTel attributes must
+// be set on the span before the event wraps it.
+function emitEvent(
+  name: string,
+  attributes: LangfuseEventAttributes,
+  buildOtelAttributes: (traceId: string) => Attributes,
+  parent?: LangfuseSpan | LangfuseAgent
+): void {
+  const timestamp = new Date();
+  const parentContext = parent
+    ? trace.setSpanContext(context.active(), parent.otelSpan.spanContext())
+    : undefined;
+  const otelSpan = getLangfuseTracer().startSpan(name, { startTime: timestamp }, parentContext);
+  otelSpan.setAttributes(buildOtelAttributes(otelSpan.spanContext().traceId));
+  new LangfuseEvent({ otelSpan, attributes, timestamp });
+}
+
+function sessionEventAttributes(sessionId?: string, sessionKey?: string): Attributes {
+  return {
+    ...(sessionId ? { "openclaw.session.id": sessionId } : {}),
+    ...(sessionKey ? { "openclaw.session.key": sessionKey } : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,25 +643,20 @@ function activate(api: OpenClawPluginApi): void {
 
   if (shouldHookEnabled("gateway_start")) {
     api.on("gateway_start", async (event: any) => {
-      // One-shot event with no parent context — emit as an isolated span.
-      const span = startObservation(
+      // One-shot event with no parent context — emit as its own trace.
+      emitEvent(
         "gateway_start",
         {
           metadata: { "gateway.port": event.port || 0 },
           environment: config.environment,
         },
-        { asType: "event" }
+        (traceId) => ({
+          [LangfuseOtelSpanAttributes.AS_ROOT]: true,
+          [LangfuseOtelSpanAttributes.TRACE_NAME]: `gateway-${traceId.slice(0, 8)}`,
+          ...(tags.length ? { [LangfuseOtelSpanAttributes.TRACE_TAGS]: tags } : {}),
+          "openclaw.version": openclawVersion,
+        })
       );
-      span.otelSpan.setAttribute(LangfuseOtelSpanAttributes.AS_ROOT, true);
-      span.otelSpan.setAttribute(
-        LangfuseOtelSpanAttributes.TRACE_NAME,
-        `gateway-${span.traceId.slice(0, 8)}`
-      );
-      if (tags.length) {
-        span.otelSpan.setAttribute(LangfuseOtelSpanAttributes.TRACE_TAGS, tags);
-      }
-      span.otelSpan.setAttribute("openclaw.version", openclawVersion);
-      span.end();
     });
   }
 
@@ -656,21 +679,12 @@ function activate(api: OpenClawPluginApi): void {
       if (safeEvent.reason) metadata["session.reason"] = safeEvent.reason;
       if (safeEvent.resumedFrom) metadata["session.resumed_from"] = safeEvent.resumedFrom;
 
-      const evtAttrs: any = {
-        metadata,
-        environment: config.environment,
-      };
-      const opts = { asType: "event" as const };
-      const evt = parent
-        ? parent.startObservation("session_start", evtAttrs, opts)
-        : startObservation("session_start", evtAttrs, opts);
-      if (effectiveSessionId) {
-        evt.otelSpan.setAttribute("openclaw.session.id", effectiveSessionId);
-      }
-      if (ctx.sessionKey) {
-        evt.otelSpan.setAttribute("openclaw.session.key", ctx.sessionKey);
-      }
-      evt.end();
+      emitEvent(
+        "session_start",
+        { metadata, environment: config.environment },
+        () => sessionEventAttributes(effectiveSessionId, ctx.sessionKey),
+        parent
+      );
     });
   }
 
@@ -696,26 +710,20 @@ function activate(api: OpenClawPluginApi): void {
       };
       if (safeEvent.reason) metadata["session.reason"] = safeEvent.reason;
 
-      const evtAttrs: any = {
-        metadata,
-        output: {
-          messageCount: safeEvent.messageCount,
-          durationMs: safeEvent.durationMs,
-          ...(safeEvent.reason ? { reason: safeEvent.reason } : {}),
+      emitEvent(
+        "session_end",
+        {
+          metadata,
+          output: {
+            messageCount: safeEvent.messageCount,
+            durationMs: safeEvent.durationMs,
+            ...(safeEvent.reason ? { reason: safeEvent.reason } : {}),
+          },
+          environment: config.environment,
         },
-        environment: config.environment,
-      };
-      const opts = { asType: "event" as const };
-      const evt = parent
-        ? parent.startObservation("session_end", evtAttrs, opts)
-        : startObservation("session_end", evtAttrs, opts);
-      if (effectiveSessionId) {
-        evt.otelSpan.setAttribute("openclaw.session.id", effectiveSessionId);
-      }
-      if (ctx.sessionKey) {
-        evt.otelSpan.setAttribute("openclaw.session.key", ctx.sessionKey);
-      }
-      evt.end();
+        () => sessionEventAttributes(effectiveSessionId, ctx.sessionKey),
+        parent
+      );
 
       const endedSessionKey = resolveSessionKey(safeCtx, safeEvent) || ctx.sessionKey;
       if (endedSessionKey) {
