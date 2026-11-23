@@ -293,7 +293,13 @@ function activate(api: OpenClawPluginApi): void {
       if (ctx.agentSpan) {
         applySessionAttributes(ctx.agentSpan, effectiveSessionId, ctx.sessionKey);
       }
-      if (lastUserTurnContext && lastUserTurnContext !== ctx) {
+      // Copy session info into the last user turn only when it is the same session,
+      // so a concurrent run in another session cannot overwrite it.
+      if (
+        lastUserTurnContext &&
+        lastUserTurnContext !== ctx &&
+        (!lastUserTurnContext.sessionKey || lastUserTurnContext.sessionKey === ctx.sessionKey)
+      ) {
         if (!lastUserTurnContext.sessionKey && ctx.sessionKey) {
           lastUserTurnContext.sessionKey = ctx.sessionKey;
         }

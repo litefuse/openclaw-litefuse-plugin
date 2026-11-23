@@ -164,6 +164,25 @@ test('OpenClaw 2.0 falls back to sessionKey when sessionId is unavailable', asyn
   assert.equal(gen.attrs['session.id'], 'agent:main:discord:dm:42');
 });
 
+test('A concurrent run in another session does not overwrite the last user turn session', async () => {
+  const spans = await runScenario('cross-session-isolation');
+
+  const roots = spans.filter((s) => s.name === 'enter_openclaw_system');
+  const chatRoot = roots.find((r) => r.attrs['openclaw.session.key'] === 'agent:main:telegram:dm:7');
+  const cronRoot = roots.find((r) => r.attrs['openclaw.session.key'] === 'agent:main:cron:job-1');
+
+  assert.ok(chatRoot && cronRoot, `Expected both roots, got: ${roots.map((r) => r.attrs['openclaw.session.key']).join(', ')}`);
+  for (const key of ['session.id', 'langfuse.session.id', 'openclaw.session.id']) {
+    assert.equal(chatRoot.attrs[key], 'sess-chat-a', `chat root ${key}`);
+    assert.equal(cronRoot.attrs[key], 'sess-cron-b', `cron root ${key}`);
+  }
+  for (const span of spans.filter((s) => s.traceId === chatRoot.traceId)) {
+    if (span.attrs['session.id'] !== undefined) {
+      assert.equal(span.attrs['session.id'], 'sess-chat-a', `${span.name} in chat trace`);
+    }
+  }
+});
+
 test('Channel message_received links OpenClaw 2.0 sessionId and supports parallel tool calls', async () => {
   const spans = await runScenario('channel-message-and-parallel-tools');
 

@@ -234,6 +234,50 @@ if (scenario === 'control-ui-full') {
   );
   await handlers.get('agent_end')({ success: true, durationMs: 120, messages: [] }, agentCtx);
   await wait(1000);
+} else if (scenario === 'cross-session-isolation') {
+  // Session B (a cron run) owns its own turn context before session A starts.
+  const cronCtx = {
+    agentId: 'main',
+    sessionKey: 'agent:main:cron:job-1',
+    sessionId: 'sess-cron-b',
+    runId: 'run-cron-b',
+    trigger: 'cron',
+  };
+  await handlers.get('before_prompt_build')({ prompt: 'Nightly report' }, cronCtx);
+  await handlers.get('llm_input')(
+    { runId: 'run-cron-b', sessionId: 'sess-cron-b', provider: 'openai', model: 'gpt-5', prompt: 'Nightly report', historyMessages: [] },
+    cronCtx,
+  );
+
+  // Session A: a channel message without sessionKey makes A the last user turn.
+  const chatCtx = {
+    agentId: 'main',
+    sessionKey: 'agent:main:telegram:dm:7',
+    sessionId: 'sess-chat-a',
+    runId: 'run-chat-a',
+  };
+  await handlers.get('message_received')(
+    { from: 'telegram-user-7', role: 'user', content: 'Question from chat A' },
+    { channelId: 'telegram', conversationId: 'chat-7' },
+  );
+  await handlers.get('before_prompt_build')({ prompt: 'Question from chat A' }, chatCtx);
+  await handlers.get('llm_input')(
+    { runId: 'run-chat-a', sessionId: 'sess-chat-a', provider: 'openai', model: 'gpt-5', prompt: 'Question from chat A', historyMessages: [] },
+    chatCtx,
+  );
+  await handlers.get('llm_output')(
+    { runId: 'run-chat-a', provider: 'openai', model: 'gpt-5', assistantTexts: ['Answer for chat A'] },
+    chatCtx,
+  );
+  await handlers.get('agent_end')({ success: true, durationMs: 30, messages: [] }, chatCtx);
+
+  // Session B's hooks land inside A's deferred finalize window.
+  await handlers.get('llm_output')(
+    { runId: 'run-cron-b', provider: 'openai', model: 'gpt-5', assistantTexts: ['Nightly report done'] },
+    cronCtx,
+  );
+  await handlers.get('agent_end')({ success: true, durationMs: 40, messages: [] }, cronCtx);
+  await wait(1000);
 } else {
   throw new Error(`Unknown scenario: ${scenario}`);
 }
