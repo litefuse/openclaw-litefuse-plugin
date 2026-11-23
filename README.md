@@ -87,7 +87,7 @@ Send traces to multiple Litefuse instances simultaneously. All targets receive i
 
 ### Conversation hook access (OpenClaw 2.0)
 
-OpenClaw 2.0 (`>=2026.8.1`, including `2026.10.x` / `2026.11.x`) requires explicit conversation access for external plugins that observe conversation hooks (`before_model_resolve`, `before_prompt_build`, `llm_input`, `llm_output`, `agent_end`). The plugin declares `contracts.conversationAccess: ["read"]` in `openclaw.plugin.json`, and you can also grant access explicitly by adding `hooks` next to `config` in the plugin entry:
+OpenClaw 2.0 (`>=2026.8.1`, including `2026.10.x` / `2026.11.x`) blocks the conversation hooks (`before_model_resolve`, `before_prompt_build`, `llm_input`, `llm_output`, `agent_end`) of external plugins until you grant conversation access. This grant is required: without it the plugin exports no traces. OpenClaw reads the grant only from your config, not from the plugin manifest. Add `hooks` next to `config` in the plugin entry:
 
 ```jsonc
 {
@@ -103,7 +103,7 @@ OpenClaw 2.0 (`>=2026.8.1`, including `2026.10.x` / `2026.11.x`) requires explic
 }
 ```
 
-Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether these hooks are registered. This permission lets the plugin read conversation content and session context (`sessionId` / `sessionKey`) for tracing.
+Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether these hooks are registered. When the grant is missing, the output lists diagnostics such as `typed hook "llm_input" blocked because non-bundled plugins must set plugins.entries.openclaw-litefuse-plugin.hooks.allowConversationAccess=true`. This permission lets the plugin read conversation content and session context (`sessionId` / `sessionKey`) for tracing.
 
 > **Version compatibility:**
 > - **OpenClaw 2.0 (`>=2026.8.1`)**: Supported on `main` (`0.4.0+`) via `before_model_resolve`, `before_prompt_build`, `llm_input`/`llm_output`, `agent_end`, and persistent `sessionId`/`sessionKey` correlation.
