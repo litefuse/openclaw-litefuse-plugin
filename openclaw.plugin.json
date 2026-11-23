@@ -1,5 +1,8 @@
 {
   "id": "openclaw-litefuse-plugin",
+  "contracts": {
+    "conversationAccess": ["read"]
+  },
   "configSchema": {
     "type": "object",
     "properties": {
