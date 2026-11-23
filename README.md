@@ -85,9 +85,9 @@ Send traces to multiple Litefuse instances simultaneously. All targets receive i
 }
 ```
 
-### Conversation hook access
+### Conversation hook access (OpenClaw 2.0)
 
-OpenClaw 2026.10.2 requires explicit conversation access for external plugins that use `llm_input`, `llm_output`, and `agent_end`. Add `hooks` next to `config` in the plugin entry:
+OpenClaw 2.0 (`>=2026.8.1`, including `2026.10.x` / `2026.11.x`) blocks the conversation hooks (`before_model_resolve`, `before_prompt_build`, `llm_input`, `llm_output`, `agent_end`) of external plugins until you grant conversation access. This grant is required: without it the plugin exports no traces. OpenClaw reads the grant only from your config, not from the plugin manifest. Add `hooks` next to `config` in the plugin entry:
 
 ```jsonc
 {
@@ -103,9 +103,11 @@ OpenClaw 2026.10.2 requires explicit conversation access for external plugins th
 }
 ```
 
-Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether these hooks are registered. This permission lets the plugin read conversation content for tracing.
+Run `openclaw plugins inspect openclaw-litefuse-plugin --runtime` to check whether these hooks are registered. When the grant is missing, the output lists diagnostics such as `typed hook "llm_input" blocked because non-bundled plugins must set plugins.entries.openclaw-litefuse-plugin.hooks.allowConversationAccess=true`. This permission lets the plugin read conversation content and session context (`sessionId` / `sessionKey`) for tracing.
 
-OpenClaw 2026.10.2 ignores the plugin's existing `before_agent_start` hook. Agent span creation on that version needs a separate compatibility fix.
+> **Version compatibility:**
+> - **OpenClaw 2.0 (`>=2026.8.1`)**: Supported on `main` (`0.4.0+`) via `before_model_resolve`, `before_prompt_build`, `llm_input`/`llm_output`, `agent_end`, and persistent `sessionId`/`sessionKey` correlation.
+> - **OpenClaw 1.x (`<=2026.7.1`)**: Backward-compatible on `main`, and pinned at tag `openclaw-2026.7.1` (`0.3.0`).
 
 ### Apply configuration
 
@@ -129,7 +131,7 @@ openclaw gateway restart
 
 ### Available Hooks
 
-`session_start`, `session_end`, `message_received`, `message_sending`, `message_sent`, `llm_input`, `llm_output`, `before_tool_call`, `after_tool_call`, `before_agent_start`, `agent_end`, `gateway_start`
+`session_start`, `session_end`, `message_received`, `message_sending`, `message_sent`, `before_model_resolve`, `before_prompt_build`, `before_agent_start`, `llm_input`, `llm_output`, `before_tool_call`, `after_tool_call`, `agent_end`, `gateway_start`
 
 ## What Gets Captured
 
